@@ -51,5 +51,6 @@ add it to your PC like an app. It also works offline after the first visit.
   recognition) and the Anthropic SDK, copied there by `npm run vendor`.
 - `desktop/`: the Electron shell for the Windows app (screen picker, global hotkeys).
 - `tests/`: `npm test` checks identifier removal.
-- `.github/workflows/release.yml`: builds the Windows installer, installs and launches it on a Windows runner,
-  and attaches it to the release when a `v*` tag is pushed.
+- `.github/workflows/release.yml`: on every push to `main` that touches the app, builds the Windows installer,
+  installs and launches it on a Windows runner, and publishes it as release `v<version>` (version from
+  `desktop/package.json`).

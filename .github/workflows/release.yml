@@ -2,7 +2,8 @@ name: Build Windows app
 
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
+    paths: ["web/**", "desktop/**", "tests/**", ".github/workflows/release.yml"]
   workflow_dispatch:
 
 permissions:
@@ -47,10 +48,21 @@ jobs:
             desktop/dist/SliceWatch-Setup-*.exe
             desktop/dist/SliceWatch-Portable-*.exe
 
-      - name: Attach to release
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Read version
+        id: ver
+        shell: pwsh
+        run: echo "v=$((Get-Content desktop/package.json | ConvertFrom-Json).version)" >> $env:GITHUB_OUTPUT
+
+      - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: v${{ steps.ver.outputs.v }}
+          name: SliceWatch ${{ steps.ver.outputs.v }}
+          target_commitish: ${{ github.sha }}
+          body: |
+            Windows installer and portable app for SliceWatch ${{ steps.ver.outputs.v }}.
+            Built, installed and launched on a Windows runner before publishing.
+            Windows may show a SmartScreen warning because the app is not code-signed: choose More info, then Run anyway.
           files: |
             desktop/dist/SliceWatch-Setup-*.exe
             desktop/dist/SliceWatch-Portable-*.exe
