@@ -1,7 +1,7 @@
 {
   "name": "slicewatch",
   "productName": "SliceWatch",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "description": "CT second read from your screen. Patient identifiers are removed on your computer before anything is sent.",
   "main": "main.js",
   "author": "SliceWatch",

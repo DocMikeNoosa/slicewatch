@@ -12,6 +12,8 @@ protocol.registerSchemesAsPrivileged([
 ]);
 
 if (!app.requestSingleInstanceLock()) { app.quit(); }
+// Windows only shows notifications (Claude's requests while PACS has focus) for apps with an ID.
+if (process.platform === "win32") app.setAppUserModelId("app.slicewatch.desktop");
 let win = null;
 let pickSeq = 0;
 
@@ -22,6 +24,9 @@ function createWindow() {
     icon: path.join(WEB_ROOT, "icons", "icon-512.png"),
     webPreferences: { preload: path.join(__dirname, "preload.js"), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false },
   });
+  // Keep SliceWatch out of its own screen capture (Windows 10 2004 and later): otherwise, on a shared monitor,
+  // each captured slice changes SliceWatch's own window, which would be captured again as a "new" slice.
+  if (process.platform === "win32") win.setContentProtection(true);
   win.loadURL("app://slicewatch/index.html");
   // Links open in the normal browser, never inside the app.
   win.webContents.setWindowOpenHandler(({ url }) => { if (/^https:\/\//.test(url)) shell.openExternal(url); return { action: "deny" }; });
