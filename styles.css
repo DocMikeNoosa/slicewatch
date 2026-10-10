@@ -160,3 +160,10 @@ dialog.pick{max-width:min(900px,calc(100vw - 32px))}
 dialog.snap{max-width:min(1200px,calc(100vw - 32px))}
 .snap-stage{background:#000;border-radius:6px;overflow:auto;max-height:70vh}
 .snap-stage canvas{display:block;width:100%;height:auto;cursor:crosshair;touch-action:none}
+
+.keyrow{display:flex;gap:8px}
+.keyrow input{flex:1}
+.setup ol{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:4px}
+.setup a{color:var(--accent)}
+.setup code{font:12.5px var(--font-mono)}
+#cost{font-size:12px;color:var(--muted)}
