@@ -138,12 +138,18 @@ export async function runStudy(page, reqs, { desktop = false, rejectOptional = f
   check(/\$/.test(await page.textContent("#cost")), "cost estimate shown");
 
   const accepted = reqs.filter((r) => !(rejectOptional && (r.fallbacks || r.cache_control)));
-  if (rejectOptional) check(accepted.length >= 3 && accepted.every((r) => !r.fallbacks), "after a refused optional feature, requests continue in basic mode");
+  if (rejectOptional) {
+    const refused = reqs.length - accepted.length;
+    check(refused === 1 && accepted.length >= 2 && accepted.every((r) => !r.fallbacks && !r.cache_control),
+      `after one refused optional feature, every later request uses basic mode (${refused} refused, ${accepted.length} accepted)`);
+  }
   const final = accepted.find((r) => !/watching a physician/.test(r.system || ""));
   const liveOk = live.filter((r) => accepted.includes(r));
   const texts = JSON.stringify([...liveOk, final].map((r) => r.messages[0].content.filter((c) => c.type === "text")));
   check(IDENTIFIERS.every((w) => !texts.includes(w)), "no identifiers in any text sent to Claude");
   check(texts.includes("Notes you made while watching live"), "final read includes the live notes");
+  check(/Many studies are normal/.test(final.system) && /Not applicable: no abnormality identified/.test(final.system), "read instructions allow a normal study without a forced differential");
+  check(liveOk.every((r) => /Many studies are normal/.test(r.system)), "live instructions allow 'no abnormality so far'");
   const tagged = [...liveOk, final].flatMap((r, i) => r.messages[0].content.filter((c) => c.type === "image").map((c) => ({ src: r === final ? "final read" : `live update ${i + 1}`, data: c.source.data })));
   const imgs = tagged.map((t) => t.data);
   const pixels = await page.evaluate(async ({ datas, srcs }) => {
