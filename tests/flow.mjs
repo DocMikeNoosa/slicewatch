@@ -143,25 +143,32 @@ export async function runStudy(page, reqs, { desktop = false, rejectOptional = f
   const texts = JSON.stringify([...liveOk, final].map((r) => r.messages[0].content.filter((c) => c.type === "text")));
   check(IDENTIFIERS.every((w) => !texts.includes(w)), "no identifiers in any text sent to Claude");
   check(texts.includes("Notes you made while watching live"), "final read includes the live notes");
-  const imgs = [...liveOk, final].flatMap((r) => r.messages[0].content.filter((c) => c.type === "image").map((c) => c.source.data));
-  const pixels = await page.evaluate(async (datas) => {
-    let worst = 0;
-    for (const d of datas) {
+  const tagged = [...liveOk, final].flatMap((r, i) => r.messages[0].content.filter((c) => c.type === "image").map((c) => ({ src: r === final ? "final read" : `live update ${i + 1}`, data: c.source.data })));
+  const imgs = tagged.map((t) => t.data);
+  const pixels = await page.evaluate(async ({ datas, srcs }) => {
+    let worst = 0, where = "";
+    for (const [k, d] of datas.entries()) {
       const im = new Image(); im.src = "data:image/jpeg;base64," + d; await im.decode();
       const c = document.createElement("canvas"); c.width = im.width; c.height = im.height; const x = c.getContext("2d"); x.drawImage(im, 0, 0);
-      const px = x.getImageData(0, 0, c.width, c.height).data; let n = 0;
+      const px = x.getImageData(0, 0, c.width, c.height).data; let n = 0, bx0 = 1e9, by0 = 1e9, bx1 = -1, by1 = -1, kinds = {};
       for (let i = 0; i < px.length; i += 4) {
         const p = i / 4, X = p % c.width, Y = (p / c.width) | 0;
         const tiled = c.width === 1024 && c.height === 1024;   // 2×2 grids have a #label in each cell
         if (tiled ? (X % 512) < 90 && (Y % 512) < 40 : X < 130 && Y < 45) continue;
         const r = px[i], g = px[i + 1], b = px[i + 2];
-        if ((r > 190 && g > 180 && b < 140) || (g > 190 && r < 170 && b < 170) || (r > 235 && g > 235 && b > 235)) n++;
+        const kind = r > 190 && g > 180 && b < 140 ? "yellow" : g > 190 && r < 170 && b < 170 ? "green" : r > 235 && g > 235 && b > 235 ? "white" : "";
+        if (kind) { n++; kinds[kind] = (kinds[kind] || 0) + 1; bx0 = Math.min(bx0, X); by0 = Math.min(by0, Y); bx1 = Math.max(bx1, X); by1 = Math.max(by1, Y); }
       }
-      worst = Math.max(worst, n);
+      if (n > worst) { worst = n; where = `image ${k + 1} [${srcs[k]}] (${c.width}x${c.height}) at x ${bx0}-${bx1}, y ${by0}-${by1}, ${JSON.stringify(kinds)}`; }
     }
-    return worst;
-  }, imgs);
-  check(pixels === 0, `no overlay-text pixels left in ${imgs.length} images sent (worst image: ${pixels})`);
+    return { worst, where };
+  }, { datas: imgs, srcs: tagged.map((t) => t.src) });
+  if (pixels.worst && process.env.SW_DUMP) {
+    fs.mkdirSync(process.env.SW_DUMP, { recursive: true });
+    tagged.forEach((t, i) => fs.writeFileSync(path.join(process.env.SW_DUMP, `sent-${String(i + 1).padStart(2, "0")}-${t.src.replace(/\W+/g, "-")}.jpg`), Buffer.from(t.data, "base64")));
+    fs.writeFileSync(path.join(process.env.SW_DUMP, "masks.json"), JSON.stringify(await page.evaluate(() => [...window.__sw.state.masks.entries()].map(([k, m]) => [k, m.boxes, [...m.done]]))));
+  }
+  check(pixels.worst === 0, `no overlay-text pixels left in ${imgs.length} images sent (worst: ${pixels.worst}${pixels.where ? ", " + pixels.where : ""})`);
   const ocr = await page.evaluate(async (datas) => {
     const w = await Tesseract.createWorker("eng", 1, { workerPath: "vendor/tesseract/worker.min.js", corePath: "vendor/tesseract/core", langPath: "vendor/tesseract/lang", gzip: true, cacheMethod: "none" });
     let all = ""; for (const d of datas.slice(0, 12)) all += (await w.recognize("data:image/jpeg;base64," + d)).data.text + "\n";
