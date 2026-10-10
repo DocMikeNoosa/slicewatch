@@ -710,10 +710,41 @@ function friendlyError(e) {
   if (A && e instanceof A.APIError) return `Claude API error ${e.status ?? ""}: ${e.error?.error?.message || e.message}`;
   return "Something went wrong: " + (e?.message || e);
 }
+// Optional request features (refusal fallback, prompt caching, reasoning summaries). If the API turns one down
+// for this account or model, retry once without them and keep using the basic request from then on.
+const apiCompat = { minimal: false };
+function basicParams(p) {
+  const q = { ...p };
+  delete q.betas; delete q.fallbacks; delete q.cache_control;
+  if (q.thinking) q.thinking = { type: "adaptive" };
+  return q;
+}
+async function streamWithFallback(client, params, signal, onEvent) {
+  const run = async (p) => {
+    const st = client.beta.messages.stream(p, { signal });
+    for await (const ev of st) onEvent?.(ev);
+    const msg = await st.finalMessage();
+    addUsage(msg);
+    return msg;
+  };
+  if (!apiCompat.minimal) {
+    try { return await run(params); }
+    catch (e) {
+      const A = window.Anthropic;
+      const optional = A && e instanceof A.BadRequestError && /beta|fallback|cache_control|display|thinking|unknown|not supported|not permitted|extra inputs/i.test(e.message);
+      if (!optional) throw e;
+      console.warn("Retrying without optional API features:", e.message);
+      apiCompat.minimal = true;
+    }
+  }
+  return run(basicParams(params));
+}
+
 async function callClaude(messages, onText) {
   const client = new window.Anthropic({ apiKey: settings.key, dangerouslyAllowBrowser: true, maxRetries: 2 });
   state.ctl = new AbortController();
-  const stream = client.beta.messages.stream({
+  let text = "", thinking = "";
+  const msg = await streamWithFallback(client, {
     model: settings.model,
     max_tokens: 32000,
     betas: ["server-side-fallback-2026-07-01"],
@@ -723,16 +754,12 @@ async function callClaude(messages, onText) {
     cache_control: { type: "ephemeral" },
     system: SYSTEM,
     messages,
-  }, { signal: state.ctl.signal });
-  let text = "", thinking = "";
-  for await (const ev of stream) {
+  }, state.ctl.signal, (ev) => {
     if (ev.type === "content_block_delta") {
       if (ev.delta.type === "text_delta") { text += ev.delta.text; onText(text); setStatus(""); }
       else if (ev.delta.type === "thinking_delta") { thinking += ev.delta.thinking; $("#thinkWrap").hidden = false; $("#think").textContent = thinking; }
     }
-  }
-  const msg = await stream.finalMessage();
-  addUsage(msg);
+  });
   return { msg, text };
 }
 
@@ -943,8 +970,13 @@ $("#sTest").onclick = async () => {
   msg.className = "hint"; msg.textContent = "Testing…"; $("#sTest").disabled = true;
   try {
     const client = new window.Anthropic({ apiKey: key, dangerouslyAllowBrowser: true, maxRetries: 0 });
-    await client.messages.create({ model: $("#sModel").value, max_tokens: 64, output_config: { effort: "low" }, messages: [{ role: "user", content: "Reply with the single word OK." }] });
-    msg.textContent = "The key works with this model. Press Save.";
+    apiCompat.minimal = false;
+    await streamWithFallback(client, {
+      model: $("#sModel").value, max_tokens: 256, betas: ["server-side-fallback-2026-07-01"], fallbacks: "default",
+      thinking: { type: "adaptive", display: "summarized" }, output_config: { effort: "low" }, cache_control: { type: "ephemeral" },
+      messages: [{ role: "user", content: "Reply with the single word OK." }],
+    }, undefined);
+    msg.textContent = "The key works with this model" + (apiCompat.minimal ? " (in basic mode: some optional features were turned off)" : "") + ". Press Save.";
   } catch (e) {
     msg.className = "hint warn";
     const A = window.Anthropic;
