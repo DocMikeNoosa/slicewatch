@@ -12,9 +12,11 @@ confidence. Every finding cites the slices it is based on, and you can click a c
 
 ## Patient identifiers stay on your computer
 
-- **Images.** SliceWatch keeps only the part of the screen that changes as you scroll (the image viewport),
-  so worklists and banners are left out. All on-screen text inside it, such as name, date of birth, MRN and
-  accession number, is found by text recognition running on your PC and blacked out before anything is sent.
+- **Images.** SliceWatch keeps only the image viewport: it starts from the part of the screen that changes as you
+  scroll and grows out to the viewport's frame, so worklists and banners are left out but the edges of the anatomy
+  are never cut off. On-screen text inside it, such as name, date of birth, MRN and accession number, is blacked out
+  by two independent methods: text recognition running on your PC, and detection of anything that stays
+  pixel-identical across slices while the anatomy changes (which is how overlay text behaves).
 - **Clinical details.** Snap the request from your screen (or paste a screenshot). The text is read on your PC.
   Names, dates of birth, ID numbers, addresses, phone numbers and other dates are removed. Age becomes a band
   (for example "60s") and sex is kept. The screenshot itself is never sent.

@@ -39,7 +39,8 @@ export async function installFakeScreens(page, { big = false } = {}) {
       x.beginPath(); x.ellipse(cx, cy, (300 - s * 0.5 * 3) * R, (360 - s * 0.5 * 4) * R, 0, 0, 7); x.clip();
       x.fillStyle = "#c8c8c8"; x.fillRect(vx, vy, vw, vh);
       x.fillStyle = "#6e6e6e"; x.beginPath(); x.ellipse(cx, cy, (270 - s * 0.5 * 3) * R, (330 - s * 0.5 * 4) * R, 0, 0, 7); x.fill();
-      x.globalAlpha = 0.6; for (let i = 0; i < 6; i++) for (let j = 0; j < 4; j++) x.drawImage(noise, vx + i * 256, vy + j * 256);
+      // CT noise differs on every slice: shift the noise texture per slice.
+      x.globalAlpha = 0.6; for (let i = -1; i < 6; i++) for (let j = -1; j < 4; j++) x.drawImage(noise, vx + i * 256 + (s * 97) % 256, vy + j * 256 + (s * 61) % 256);
       x.globalAlpha = 1; x.fillStyle = "#3a3a3a"; x.beginPath();
       x.ellipse(cx - 40, cy - 30 + s * 3, 30, 60, 0.3, 0, 7); x.ellipse(cx + 40, cy - 30 + s * 3, 30, 60, -0.3, 0, 7); x.fill();
       if (s >= 12 && s <= 16) { x.fillStyle = "#b5b5b5"; x.beginPath(); x.ellipse(cx + 150, cy - 80, 45, 30, 0.4, 0, 7); x.fill(); }

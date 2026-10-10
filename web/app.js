@@ -14,6 +14,7 @@ const state = {
   frames: [], nextId: 1,
   lastSig: null, recent: [],
   changeMaps: new Map(),   // per frame size: where pixels change between slices
+  staticMaps: new Map(),   // per frame size: pixels that never change (overlay text)
   masks: new Map(),        // per frame size: boxes of on-screen text to black out
   convo: null, busy: false, ctl: null,
   reportMd: "", qa: [],
@@ -272,13 +273,86 @@ function trackChange(src, cx, cy, cw, ch, f) {
   const g = grey(cmctx, CM_W, h);
   if (cm.prev) { for (let i = 0; i < g.length; i++) if (Math.abs(g[i] - cm.prev[i]) > 18) cm.counts[i]++; cm.n++; }
   cm.prev = g;
+  trackStatic(src, cx, cy, cw, ch, key);
 }
-// The image area is wherever the picture changed between slices (a lone changed cell, such as a cursor, is ignored),
-// widened through the black margin of the viewport so the edges of the anatomy are never cut off.
+
+/* Second, independent layer of blackout that does not rely on text recognition: banner and overlay text sits in
+   exactly the same place on every slice while the anatomy changes, so bright strokes that stay identical across
+   slices are treated as on-screen text. Tracked as a per-pixel min and max over every kept slice. */
+const SM_MAX = 1920;   // track at native resolution (capped) so letter strokes stay crisp
+const smC = document.createElement("canvas");
+const smctx = smC.getContext("2d", { willReadFrequently: true });
+function trackStatic(src, cx, cy, cw, ch, key) {
+  const w = Math.min(SM_MAX, cw), h = Math.max(8, Math.round(w * ch / cw));
+  let sm = state.staticMaps.get(key);
+  if (!sm || sm.h !== h || sm.w !== w) { sm = { w, h, min: new Uint8Array(w * h).fill(255), max: new Uint8Array(w * h), n: 0 }; state.staticMaps.set(key, sm); }
+  if (smC.width !== w || smC.height !== h) { smC.width = w; smC.height = h; }
+  smctx.drawImage(src, cx, cy, cw, ch, 0, 0, w, h);
+  const d = smctx.getImageData(0, 0, w, h).data;
+  if (!sm.last) sm.last = new Uint8Array(sm.min.length);
+  for (let i = 0, j = 0; j < sm.min.length; i += 4, j++) {
+    const v = Math.max(d[i], d[i + 1], d[i + 2]);   // max channel: coloured overlay text counts as bright
+    if (v < sm.min[j]) sm.min[j] = v;
+    if (v > sm.max[j]) sm.max[j] = v;
+    sm.last[j] = v;
+  }
+  sm.n++;
+}
+function staticTextBoxes(key) {
+  const sm = state.staticMaps.get(key);
+  if (!sm || sm.n < 5) return [];
+  if (sm.cache && sm.cache.n === sm.n) return sm.cache.boxes;
+  const boxes = findStaticText(sm, key);
+  sm.cache = { n: sm.n, boxes };
+  return boxes;
+}
+function findStaticText(sm, key) {
+  const { w: W, h: H, min, max } = sm, crop = autoCrop(key);
+  const x0 = Math.floor(crop.x * W), y0 = Math.floor(crop.y * H), x1 = Math.ceil((crop.x + crop.w) * W), y1 = Math.ceil((crop.y + crop.h) * H);
+  // A pixel is overlay-like if it never changed, is bright, and borders either a much darker unchanging pixel
+  // (text on a black margin) or a pixel that changes (text drawn over anatomy, which changes from slice to slice).
+  const hit = new Uint8Array(W * H);
+  for (let y = Math.max(1, y0); y < Math.min(H - 1, y1); y++) for (let x = Math.max(1, x0); x < Math.min(W - 1, x1); x++) {
+    const i = y * W + x;
+    if (max[i] - min[i] > 12 || min[i] < 80) continue;
+    let edge = false;
+    for (let dy = -1; dy <= 1 && !edge; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const k = i + dy * W + dx;
+      if (max[k] - min[k] > 24 || max[k] < min[i] - 45) { edge = true; break; }
+    }
+    if (edge) hit[i] = 1;
+  }
+  // Group nearby hits (letters of a line, lines of a block) and keep text-sized groups.
+  const R = Math.max(4, Math.round(W / 140)), seen = new Uint8Array(W * H), boxes = [];
+  for (let i = 0; i < hit.length; i++) {
+    if (!hit[i] || seen[i]) continue;
+    let bx0 = W, by0 = H, bx1 = 0, by1 = 0, n = 0;
+    const stack = [i]; seen[i] = 1;
+    while (stack.length) {
+      const p = stack.pop(), px = p % W, py = (p / W) | 0; n++;
+      if (px < bx0) bx0 = px; if (px > bx1) bx1 = px; if (py < by0) by0 = py; if (py > by1) by1 = py;
+      for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) {
+        const qx = px + dx, qy = py + dy; if (qx < 0 || qy < 0 || qx >= W || qy >= H) continue;
+        const q = qy * W + qx; if (hit[q] && !seen[q]) { seen[q] = 1; stack.push(q); }
+      }
+    }
+    const bw = bx1 - bx0 + 1, bh = by1 - by0 + 1;
+    if (n < 6 || bw * bh > 0.15 * (x1 - x0) * (y1 - y0) || bh > 0.25 * (y1 - y0)) continue;
+    const pad = Math.max(4, Math.round(W / 160));
+    boxes.push({ x: Math.max(0, bx0 - pad) / W, y: Math.max(0, by0 - pad) / H, x2: Math.min(W, bx1 + 1 + pad) / W, y2: Math.min(H, by1 + 1 + pad) / H });
+  }
+  return mergeBoxes(boxes);
+}
+// The image area starts as wherever the picture changed between slices (a lone changed cell, such as a cursor, is
+// ignored). It then grows outward until it meets plain, unchanging screen furniture, such as the frame or panel
+// around the viewport. Anything else (black margins, the body outline, slowly changing anatomy) is taken in, so
+// the edges of the anatomy are never cut off. Text in whatever extra area this takes in is blacked out separately.
 function autoCrop(key) {
   const cm = state.changeMaps.get(key);
   const full = { x: 0, y: 0, w: 1, h: 1 };
   if (!cm || cm.n < 3) return full;
+  const sm = state.staticMaps.get(key);
+  if (sm && sm.cropCache && sm.cropCache.n === sm.n && sm.cropCache.cn === cm.n) return sm.cropCache.r;
   const W = cm.w, H = cm.h, cnt = cm.counts;
   const on = (x, y) => x >= 0 && y >= 0 && x < W && y < H && cnt[y * W + x] > 0;
   let x0 = W, y0 = H, x1 = -1, y1 = -1;
@@ -289,20 +363,36 @@ function autoCrop(key) {
     if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
   }
   if (x1 < 0) return full;
-  const g = cm.prev, dark = 24;
-  const rowDark = (y) => { let s = 0; for (let x = x0; x <= x1; x++) s += g[y * W + x]; return s / (x1 - x0 + 1) < dark; };
-  const colDark = (x) => { let s = 0; for (let y = y0; y <= y1; y++) s += g[y * W + x]; return s / (y1 - y0 + 1) < dark; };
-  for (let grow = true; grow;) {
-    grow = false;
-    if (y0 > 0 && rowDark(y0 - 1)) { y0--; grow = true; }
-    if (y1 < H - 1 && rowDark(y1 + 1)) { y1++; grow = true; }
-    if (x0 > 0 && colDark(x0 - 1)) { x0--; grow = true; }
-    if (x1 < W - 1 && colDark(x1 + 1)) { x1++; grow = true; }
+  let r;
+  if (sm && sm.last) {
+    // Grow at the finer static-map resolution. A line is furniture if it is unchanging, even in tone and not black.
+    const SW = sm.w, SH = sm.h, mn = sm.min, mx = sm.max, last = sm.last;
+    let a0 = Math.floor(x0 / W * SW), b0 = Math.floor(y0 / H * SH), a1 = Math.min(SW - 1, Math.ceil((x1 + 1) / W * SW) - 1), b1 = Math.min(SH - 1, Math.ceil((y1 + 1) / H * SH) - 1);
+    const furniture = (xa, xb, ya, yb) => {
+      let n = 0, still = 0, sum = 0, sq = 0;
+      for (let y = ya; y <= yb; y++) for (let x = xa; x <= xb; x++) {
+        const i = y * SW + x, v = last[i]; n++; sum += v; sq += v * v;
+        if (mx[i] - mn[i] <= 8) still++;
+      }
+      const mean = sum / n, sd = Math.sqrt(Math.max(0, sq / n - mean * mean));
+      return still / n > 0.97 && sd < 6 && mean > 30;
+    };
+    for (let grow = true; grow;) {
+      grow = false;
+      if (b0 > 0 && !furniture(a0, a1, b0 - 1, b0 - 1)) { b0--; grow = true; }
+      if (b1 < SH - 1 && !furniture(a0, a1, b1 + 1, b1 + 1)) { b1++; grow = true; }
+      if (a0 > 0 && !furniture(a0 - 1, a0 - 1, b0, b1)) { a0--; grow = true; }
+      if (a1 < SW - 1 && !furniture(a1 + 1, a1 + 1, b0, b1)) { a1++; grow = true; }
+    }
+    r = { x: a0 / SW, y: b0 / SH, w: (a1 - a0 + 1) / SW, h: (b1 - b0 + 1) / SH };
+  } else {
+    const pad = 2;
+    x0 = Math.max(0, x0 - pad); y0 = Math.max(0, y0 - pad); x1 = Math.min(W - 1, x1 + pad); y1 = Math.min(H - 1, y1 + pad);
+    r = { x: x0 / W, y: y0 / H, w: (x1 - x0 + 1) / W, h: (y1 - y0 + 1) / H };
   }
-  const pad = 1;
-  x0 = Math.max(0, x0 - pad); y0 = Math.max(0, y0 - pad); x1 = Math.min(W - 1, x1 + pad); y1 = Math.min(H - 1, y1 + pad);
-  const r = { x: x0 / W, y: y0 / H, w: (x1 - x0 + 1) / W, h: (y1 - y0 + 1) / H };
-  return r.w * r.h < 0.02 ? full : r;
+  if (r.w * r.h < 0.02) r = full;
+  if (sm) sm.cropCache = { n: sm.n, cn: cm.n, r };
+  return r;
 }
 function addFrame(src, cx, cy, cw, ch, key, label) {
   const scale = Math.min(1, STORE_MAX / Math.max(cw, ch));
@@ -366,7 +456,7 @@ function removeFrame(id) {
 }
 function clearFrames() {
   state.frames.forEach((f) => URL.revokeObjectURL(f.url));
-  state.frames = []; state.recent = []; state.lastSig = null; state.changeMaps.clear(); state.masks.clear();
+  state.frames = []; state.recent = []; state.lastSig = null; state.changeMaps.clear(); state.staticMaps.clear(); state.masks.clear();
   renderStrip();
 }
 
@@ -584,7 +674,7 @@ async function frameCanvas(f, maxSide) {
   const c = document.createElement("canvas"); c.width = Math.round(sw * s); c.height = Math.round(sh * s);
   const x = c.getContext("2d"); x.drawImage(bmp, sx, sy, sw, sh, 0, 0, c.width, c.height); bmp.close?.();
   x.fillStyle = "#000";
-  for (const b of state.masks.get(f.sizeKey)?.boxes || []) {
+  for (const b of (state.masks.get(f.sizeKey)?.boxes || []).concat(staticTextBoxes(f.sizeKey))) {
     const bx = (b.x - r.x) / r.w, by = (b.y - r.y) / r.h, bw = (b.x2 - b.x) / r.w, bh = (b.y2 - b.y) / r.h;
     x.fillRect(bx * c.width, by * c.height, bw * c.width, bh * c.height);
   }
