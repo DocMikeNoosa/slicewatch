@@ -1,5 +1,5 @@
 // Keeps SliceWatch working offline once installed. Bump VERSION when files change.
-const VERSION = "slicewatch-v2.1.2";
+const VERSION = "slicewatch-v2.1.3";
 const FILES = [
   "./", "index.html", "styles.css", "app.js", "assist.js", "scrub.js", "manifest.webmanifest",
   "icons/icon-192.png", "icons/icon-512.png", "icons/icon-maskable-512.png",

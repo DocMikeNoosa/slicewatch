@@ -88,7 +88,8 @@ async function startShare() {
   if (!navigator.mediaDevices?.getDisplayMedia) { toast("This browser can't share the screen. Use Chrome or Edge, or the Windows app."); return false; }
   let stream;
   try {
-    stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: 15, max: 30 }, cursor: "never" }, audio: false });
+    // selfBrowserSurface "exclude" keeps this tab out of the picker, so SliceWatch cannot capture itself.
+    stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: 15, max: 30 }, cursor: "never" }, audio: false, selfBrowserSurface: "exclude", preferCurrentTab: false });
   } catch (e) {
     toast(e?.name === "NotAllowedError" ? "Screen sharing was cancelled." : "Couldn't start screen sharing: " + (e?.message || e));
     return false;
