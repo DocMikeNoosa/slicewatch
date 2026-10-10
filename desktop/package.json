@@ -1,0 +1,41 @@
+{
+  "name": "slicewatch",
+  "productName": "SliceWatch",
+  "version": "2.0.0",
+  "description": "CT second read from your screen. Patient identifiers are removed on your computer before anything is sent.",
+  "main": "main.js",
+  "author": "SliceWatch",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist:win": "electron-builder --win nsis portable --x64"
+  },
+  "devDependencies": {
+    "electron": "44.4.4",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "app.slicewatch.desktop",
+    "productName": "SliceWatch",
+    "copyright": "SliceWatch",
+    "directories": { "output": "dist", "buildResources": "build" },
+    "publish": null,
+    "files": ["main.js", "preload.js", "package.json", { "from": "../web", "to": "web", "filter": ["**/*"] }],
+    "win": {
+      "target": ["nsis", "portable"],
+      "icon": "build/icon.ico",
+      "signExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "SliceWatch",
+      "artifactName": "SliceWatch-Setup-${version}.${ext}"
+    },
+    "portable": { "artifactName": "SliceWatch-Portable-${version}.${ext}" }
+  }
+}

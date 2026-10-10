@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SliceWatch</title>
+<meta name="theme-color" content="#0c1014">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.anthropic.com data: blob:; img-src 'self' data: blob:; media-src 'self' blob: mediastream:; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header>
+  <div class="brand">
+    <img src="icons/icon-192.png" width="24" height="24" alt="">
+    SliceWatch <small>CT second read from your screen</small>
+  </div>
+  <div class="spacer"></div>
+  <span class="badge" title="Names, dates of birth, ID numbers and all on-screen text are removed on this computer before anything is sent.">Identifiers removed on this PC</span>
+  <span id="pill" class="pill">Not recording</span>
+  <button class="btn" id="btnSettings" type="button">Settings</button>
+</header>
+
+<main>
+  <div class="col">
+    <section class="card" aria-labelledby="h-view">
+      <h2 id="h-view">Capture</h2>
+      <div class="row">
+        <button class="btn record" id="btnRecord" type="button"><span class="dot"></span><span id="recLabel">Record</span></button>
+        <button class="btn" id="btnSnap" type="button" disabled>Snap key slice</button>
+        <span class="spacer"></span>
+        <button class="btn quiet" id="btnStop" type="button" disabled>Stop sharing</button>
+        <label class="btn quiet" for="fileIn" title="Use a screen recording or saved images of slices instead of live capture">Load recording</label>
+        <input id="fileIn" type="file" accept="video/*,image/*" multiple hidden>
+      </div>
+      <p class="hint" id="hotkeyHint">Press Record, choose the screen with your PACS viewer, and scroll through the study. Press Stop and the read starts.</p>
+      <div class="stage" id="stage">
+        <div class="empty" id="stageEmpty">
+          <b>Nothing shared yet</b>
+          <span>The first time you press Record you choose which screen or window to watch. SliceWatch then keeps only the part of the screen that changes as you scroll, which is the image viewport, and blacks out any text in it before sending.</span>
+        </div>
+        <video id="video" muted playsinline hidden></video>
+        <canvas class="overlay" id="overlay" hidden></canvas>
+      </div>
+      <div class="row between">
+        <span class="hint" id="cropHint">Optional: drag on the preview to limit capture to one area. Double-click to clear.</span>
+        <div class="ctrl"><label for="sens">Sensitivity</label><input id="sens" type="range" min="1" max="10" step="1" value="6"><span id="sensVal" class="mono">6</span></div>
+      </div>
+      <div class="chips" id="chips" role="group" aria-label="Current window"></div>
+    </section>
+
+    <section class="card" aria-labelledby="h-strip">
+      <h2 id="h-strip">Captured slices <span class="count" id="count">0</span><span class="spacer"></span>
+        <button class="btn small" id="btnClear" type="button" disabled>Clear</button></h2>
+      <div id="strip" class="strip"></div>
+      <div id="stripEmpty" class="strip-empty">No slices yet. Each new slice appears here once, in scroll order. Click one to view it; ★ marks a key slice.</div>
+    </section>
+  </div>
+
+  <div class="col">
+    <section class="card" aria-labelledby="h-clin">
+      <h2 id="h-clin">Clinical details</h2>
+      <div class="snaprow">
+        <button class="btn primary" id="btnSnapClin" type="button">Snap from screen</button>
+        <span class="hint" id="snapHint">Drag a box around the request or notes on your screen and the fields fill in. The text is read on this PC; names, dates of birth, ID numbers, addresses and phone numbers are removed before anything is sent.</span>
+      </div>
+      <div class="drop" id="drop" tabindex="0" role="button">
+        <span>Or paste a screenshot (Ctrl+V), drop an image here, or click to choose a file.</span>
+        <input id="clinFile" type="file" accept="image/*" hidden>
+      </div>
+      <div id="clinMsg" class="clin-msg" hidden></div>
+      <form class="clin" id="clin" autocomplete="off">
+        <label class="f">Age band<select class="t" id="cAge">
+          <option value="">Not given</option><option>Under 1</option><option>1–4</option><option>5–9</option><option>10s</option><option>20s</option><option>30s</option>
+          <option>40s</option><option>50s</option><option>60s</option><option>70s</option><option>80s</option><option>90+</option></select></label>
+        <label class="f">Sex<select class="t" id="cSex"><option value="">Not given</option><option>Female</option><option>Male</option></select></label>
+        <label class="f">Study<select class="t" id="cStudy">
+          <option>CT head non-contrast</option><option>CT angiogram head/neck</option><option>CT cervical spine</option>
+          <option>CT chest</option><option>CT pulmonary angiogram</option><option>CT abdomen/pelvis</option>
+          <option>CT chest/abdomen/pelvis</option><option>CT KUB</option><option>CT aorta</option><option>Other CT</option></select></label>
+        <label class="f">Contrast phase<select class="t" id="cPhase">
+          <option>Not stated</option><option>Non-contrast</option><option>Arterial</option><option>Portal venous</option><option>Delayed</option><option>Multiphase</option></select></label>
+        <label class="f full">History<textarea class="t" id="cHist" placeholder="Paste a screenshot above, or type, e.g. Sudden severe headache 3 hours ago, on apixaban, GCS 14"></textarea></label>
+        <label class="f full">Clinical question<input class="t" id="cQ" placeholder="e.g. Haemorrhage? Mass effect?"></label>
+      </form>
+      <div class="row">
+        <button class="btn primary" id="btnAnalyze" type="button" disabled>Read study</button>
+        <button class="btn" id="btnAbort" type="button" hidden>Stop</button>
+        <button class="btn" id="btnNew" type="button">New study</button>
+        <span class="mono muted" id="plan"></span>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="h-rep">
+      <h2 id="h-rep">Provisional read</h2>
+      <div id="live" class="live" hidden aria-live="polite">
+        <div class="live-head"><span class="eye" aria-hidden="true"></span><b>Claude is watching</b><span id="liveMeta" class="mono muted"></span></div>
+        <div id="liveAsk" class="live-ask" hidden></div>
+        <div id="liveBody" class="report"></div>
+      </div>
+      <div id="status" class="status" hidden><span class="spin"></span><span id="statusText">Reading…</span></div>
+      <details class="fold" id="thinkWrap" hidden><summary>Reasoning summary</summary><div id="think" class="think"></div></details>
+      <div id="report" class="report"><p class="report-empty">Press Record, scroll through the study, then press Stop. The read appears here, and each finding links to the slices it is based on.</p></div>
+      <div id="err" class="err" hidden></div>
+      <form class="followup" id="fuForm" hidden>
+        <input class="t" id="fuIn" placeholder="Ask a follow-up, e.g. “Is the left adrenal normal?”">
+        <button class="btn" type="submit" id="fuBtn">Ask</button>
+      </form>
+      <details class="fold" id="sentWrap" hidden><summary id="sentSum">What Claude received</summary>
+        <div class="sent-text" id="sentText"></div>
+        <div class="sent-grid" id="sentGrid"></div>
+      </details>
+      <div class="disclaimer">Provisional AI interpretation of screen captures. It can miss findings and can describe findings that are not there. Verify every finding on the images yourself before acting on it.</div>
+    </section>
+  </div>
+</main>
+
+<dialog id="dlgSettings">
+  <form method="dialog" class="dlg">
+    <h3>Settings</h3>
+    <label class="f">Anthropic API key<input class="t" id="sKey" type="password" placeholder="sk-ant-…" autocomplete="off"></label>
+    <label class="ctrl"><input type="checkbox" id="sRemember"> Remember the key on this computer</label>
+    <span class="hint">The key is sent only to api.anthropic.com. Create one at console.anthropic.com under API keys. API use is billed separately from a Claude subscription.</span>
+    <label class="ctrl"><input type="checkbox" id="sLive"> Let Claude watch live while I record (working diagnosis and requests as you scroll)</label>
+    <label class="ctrl"><input type="checkbox" id="sAuto"> Start the full read automatically when I press Stop</label>
+    <label class="f">Model<select class="t" id="sModel">
+      <option value="claude-opus-5-5">Claude Opus 5.5 (recommended)</option>
+      <option value="claude-fable-5-1">Claude Fable 5.1 (most capable, slower, higher cost)</option>
+      <option value="claude-sonnet-5-5">Claude Sonnet 5.5 (faster, cheaper)</option></select></label>
+    <label class="f">Thinking effort<select class="t" id="sEffort">
+      <option value="medium">Medium</option><option value="high">High</option><option value="xhigh">Extra high</option><option value="max">Max</option></select></label>
+    <label class="f">Max images per read<input class="t" id="sMax" type="number" min="4" max="100" step="1"></label>
+    <label class="f">Pack slices 2×2 into one image<select class="t" id="sTile">
+      <option value="auto">Auto (only when there are more slices than images)</option><option value="on">Always</option><option value="off">Never</option></select></label>
+    <label class="ctrl"><input type="checkbox" id="sThorough"> Check every sent slice for text, not just a sample (slower)</label>
+    <div class="row end"><button class="btn" value="cancel" type="submit">Cancel</button><button class="btn primary" id="sSave" value="save" type="submit">Save</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlgLb" class="lb">
+  <div class="dlg">
+    <div class="row"><h3 id="lbTitle">Slice</h3><span class="spacer"></span>
+      <button class="btn" id="lbStar" type="button">★ Key slice</button>
+      <button class="btn danger" id="lbDel" type="button">Remove</button>
+      <button class="btn" id="lbClose" type="button">Close</button></div>
+    <img id="lbImg" alt="">
+    <p class="hint" id="lbNote"></p>
+  </div>
+</dialog>
+
+<dialog id="dlgPick" class="pick">
+  <div class="dlg">
+    <h3>Choose what to watch</h3>
+    <p class="hint">Pick the screen or window that shows your PACS viewer.</p>
+    <div class="pick-grid" id="pickGrid"></div>
+    <div class="row end"><button class="btn" id="pickCancel" type="button">Cancel</button></div>
+  </div>
+</dialog>
+
+<dialog id="dlgSnap" class="snap">
+  <div class="dlg">
+    <div class="row"><h3>Select the clinical details</h3><span class="spacer"></span><div class="chips" id="snapScreens"></div></div>
+    <p class="hint">Drag a box around the request, referral or notes. Only the text inside the box is read.</p>
+    <div class="snap-stage"><canvas id="snapCanvas"></canvas></div>
+    <div class="row end">
+      <button class="btn" id="snapCancel" type="button">Cancel</button>
+      <button class="btn" id="snapWhole" type="button">Read whole screen</button>
+      <button class="btn primary" id="snapRead" type="button" disabled>Read selected area</button>
+    </div>
+  </div>
+</dialog>
+
+<div id="toast" class="toast" hidden role="status"></div>
+
+<script src="vendor/anthropic-sdk.js"></script>
+<script src="vendor/tesseract/tesseract.min.js"></script>
+<script src="scrub.js"></script>
+<script src="app.js"></script>
+<script src="assist.js"></script>
+</body>
+</html>

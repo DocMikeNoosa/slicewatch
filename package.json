@@ -1,0 +1,19 @@
+{
+  "name": "slicewatch-workspace",
+  "version": "2.0.0",
+  "description": "SliceWatch build tooling: copies the text-recognition engine and Claude client into web/vendor.",
+  "scripts": {
+    "vendor": "sh scripts/vendor.sh",
+    "test": "node tests/scrub.test.js"
+  },
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@tesseract.js-data/eng": "1.0.0",
+    "tesseract.js": "6.0.1"
+  },
+  "devDependencies": {
+    "@anthropic-ai/sdk": "0.128.0",
+    "esbuild": "0.24.0"
+  },
+  "private": true
+}

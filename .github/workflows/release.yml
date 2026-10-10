@@ -1,0 +1,56 @@
+name: Build Windows app
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Check identifier removal
+        run: node tests/scrub.test.js
+
+      - name: Build installer and portable app
+        working-directory: desktop
+        run: |
+          npm ci
+          npx electron-builder --win nsis portable --x64 --publish never
+
+      - name: Install silently and start the app (smoke test)
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem desktop/dist/SliceWatch-Setup-*.exe | Select-Object -First 1
+          Start-Process $setup.FullName -ArgumentList '/S' -Wait
+          $exe = Join-Path $env:LOCALAPPDATA 'Programs\SliceWatch\SliceWatch.exe'
+          if (-not (Test-Path $exe)) { throw "SliceWatch.exe was not installed at $exe" }
+          $p = Start-Process $exe -PassThru
+          Start-Sleep -Seconds 20
+          if ($p.HasExited) { throw "SliceWatch exited during start-up (code $($p.ExitCode))" }
+          Stop-Process -Id $p.Id -Force
+          Write-Host "Installed and ran: $exe"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SliceWatch-windows
+          path: |
+            desktop/dist/SliceWatch-Setup-*.exe
+            desktop/dist/SliceWatch-Portable-*.exe
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            desktop/dist/SliceWatch-Setup-*.exe
+            desktop/dist/SliceWatch-Portable-*.exe
