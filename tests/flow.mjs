@@ -176,4 +176,27 @@ export async function runStudy(page, reqs, { desktop = false, rejectOptional = f
     await w.terminate(); return all;
   }, imgs);
   check(IDENTIFIERS.every((w) => !ocr.includes(w)), "independent text recognition finds no identifiers in the images sent");
+
+  // The crop must keep the whole viewport (x 350-1580, y 40-885 of the 1600×900 fake screen), so no anatomy is cut.
+  const crop = await page.evaluate(() => window.__sw.autoCrop(window.__sw.state.frames[0].sizeKey));
+  const px = { x0: crop.x * 1600, y0: crop.y * 900, x1: (crop.x + crop.w) * 1600, y1: (crop.y + crop.h) * 900 };
+  check(px.x0 <= 352 && px.y0 <= 42 && px.x1 >= 1578 && px.y1 >= 883,
+    `crop keeps the whole viewport (crop x ${px.x0.toFixed(0)}-${px.x1.toFixed(0)}, y ${px.y0.toFixed(0)}-${px.y1.toFixed(0)})`);
+
+  // The second blackout layer must work on its own: with the text-recognition boxes removed, no overlay text is left.
+  const alone = await page.evaluate(async () => {
+    const sw = window.__sw, st = sw.state, saved = new Map(st.masks);
+    st.masks.clear();
+    let worst = 0;
+    try {
+      for (const f of st.frames.filter((_, i) => i % 5 === 0)) {
+        const c = await sw.frameCanvas(f, null), d = c.getContext("2d").getImageData(0, 0, c.width, c.height).data;
+        let n = 0;
+        for (let i = 0; i < d.length; i += 4) { const r = d[i], g = d[i + 1], b = d[i + 2]; if ((r > 190 && g > 180 && b < 140) || (g > 190 && r < 170 && b < 170) || (r > 235 && g > 235 && b > 235)) n++; }
+        worst = Math.max(worst, n);
+      }
+    } finally { saved.forEach((v, k) => st.masks.set(k, v)); }
+    return worst;
+  });
+  check(alone === 0, `unchanging-overlay blackout alone removes all overlay text (worst: ${alone})`);
 }
