@@ -107,14 +107,12 @@ async function askLive(content) {
   const run = async (useFormat) => {
     const output_config = { effort: "low" };
     if (useFormat) output_config.format = { type: "json_schema", schema: LIVE_SCHEMA };
-    const stream = client.beta.messages.stream({
+    const msg = await streamWithFallback(client, {
       model: settings.model, max_tokens: 8000,
       betas: ["server-side-fallback-2026-07-01"], fallbacks: "default",
       thinking: { type: "adaptive" }, output_config,
       system: LIVE_SYSTEM, messages: [{ role: "user", content }],
-    }, { signal: live.ctl.signal });
-    const msg = await stream.finalMessage();
-    addUsage(msg);
+    }, live.ctl.signal);
     if (msg.stop_reason === "refusal") throw new Error("Claude declined to comment on these slices.");
     return parseJson(msg.content.filter((b) => b.type === "text").map((b) => b.text).join(""));
   };

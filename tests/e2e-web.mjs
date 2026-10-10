@@ -21,15 +21,15 @@ const url = `http://127.0.0.1:${server.address().port}/`;
 const browser = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {});
 let failed = false;
 for (const big of [false, true]) {
-  console.log(`\n== web version, ${big ? "body fills the viewport, overlays on the image" : "body inside the viewport"} ==`);
+  console.log(`\n== web version, ${big ? "body fills the viewport, overlays on the image; API refuses optional features" : "body inside the viewport"} ==`);
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
   const errors = []; page.on("pageerror", (e) => errors.push(e.message));
   try {
-    const reqs = await mockClaude(page);
+    const reqs = await mockClaude(page, { rejectOptional: big });
     await page.goto(url);
     await installFakeScreens(page, { big });
     await setKey(page);
-    await runStudy(page, reqs);
+    await runStudy(page, reqs, { rejectOptional: big });
     if (errors.length) throw new Error("page errors: " + errors.join(" | "));
   } catch (e) { failed = true; console.error(e.message); }
   await page.close();

@@ -60,10 +60,16 @@ export async function installFakeScreens(page, { big = false } = {}) {
 }
 
 // Simulated Claude: live calls get JSON notes, the full read gets a short report. Records every request body.
-export async function mockClaude(page) {
+// rejectOptional: behave like an account that refuses the optional request features, to test the fallback.
+export async function mockClaude(page, { rejectOptional = false } = {}) {
   const reqs = [];
   await page.route("https://api.anthropic.com/**", async (route) => {
     const body = JSON.parse(route.request().postData() || "{}"); reqs.push(body);
+    if (rejectOptional && (body.fallbacks || body.cache_control)) {
+      await route.fulfill({ status: 400, headers: { "content-type": "application/json", "access-control-allow-origin": "*", "request-id": "req_test" },
+        body: JSON.stringify({ type: "error", error: { type: "invalid_request_error", message: "fallbacks: Extra inputs are not permitted" } }) });
+      return;
+    }
     const ev = (t, d) => `event: ${t}\ndata: ${JSON.stringify({ type: t, ...d })}\n\n`;
     const isLive = /watching a physician scroll/.test(body.system || "");
     const text = isLive
@@ -86,7 +92,7 @@ export async function setKey(page) {
 }
 
 // Snap the clinical details from the fake EMR screen, then record 30 slices and stop. Checks everything sent.
-export async function runStudy(page, reqs, { desktop = false } = {}) {
+export async function runStudy(page, reqs, { desktop = false, rejectOptional = false } = {}) {
   console.log("clinical details from a screenshot");
   await page.evaluate(() => { window.__emr = true; });
   if (desktop) {
@@ -130,11 +136,14 @@ export async function runStudy(page, reqs, { desktop = false } = {}) {
   check(/CRITICAL/.test(await page.textContent("#report")), "read rendered with critical finding highlighted");
   check(/\$/.test(await page.textContent("#cost")), "cost estimate shown");
 
-  const final = reqs.find((r) => !/watching a physician/.test(r.system || ""));
-  const texts = JSON.stringify([...live, final].map((r) => r.messages[0].content.filter((c) => c.type === "text")));
+  const accepted = reqs.filter((r) => !(rejectOptional && (r.fallbacks || r.cache_control)));
+  if (rejectOptional) check(accepted.length >= 3 && accepted.every((r) => !r.fallbacks), "after a refused optional feature, requests continue in basic mode");
+  const final = accepted.find((r) => !/watching a physician/.test(r.system || ""));
+  const liveOk = live.filter((r) => accepted.includes(r));
+  const texts = JSON.stringify([...liveOk, final].map((r) => r.messages[0].content.filter((c) => c.type === "text")));
   check(IDENTIFIERS.every((w) => !texts.includes(w)), "no identifiers in any text sent to Claude");
   check(texts.includes("Notes you made while watching live"), "final read includes the live notes");
-  const imgs = [...live, final].flatMap((r) => r.messages[0].content.filter((c) => c.type === "image").map((c) => c.source.data));
+  const imgs = [...liveOk, final].flatMap((r) => r.messages[0].content.filter((c) => c.type === "image").map((c) => c.source.data));
   const pixels = await page.evaluate(async (datas) => {
     let worst = 0;
     for (const d of datas) {
