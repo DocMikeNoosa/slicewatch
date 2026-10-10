@@ -723,13 +723,19 @@ How to read:
 - Say plainly which regions were not covered or cannot be assessed on these captures (for example: windows not shown, slices skipped, phase unsuitable).
 - Prefix any finding that would need urgent action with "CRITICAL:".
 
+Normal studies:
+- Many studies are normal. A normal read is a correct and useful answer, not a failure to find something. The clinical question and history raise the prior probability of some findings; they are not evidence, so do not let them push you to report an abnormality the images do not show.
+- If you see no abnormality, say so plainly: the first Impression line is "No acute abnormality identified" (or "No abnormality identified" when there is nothing chronic either), followed by the pertinent negatives for the clinical question with the slices that show them.
+- Do not report normal variants, age-appropriate change, partial-volume effect, streak or beam-hardening artefact, or window-dependent appearances as pathology. Mention them only if they could be mistaken for disease, and label them as such.
+- A normal read is only as good as the coverage: say how much of the relevant anatomy was actually seen, and if coverage is too limited to call the study normal, say that instead.
+
 Write the read in Markdown with exactly these sections:
 ## Impression
 A numbered list, most important first. One line each.
 ## Findings
 Grouped by organ system or region with ### subheadings. Include pertinent negatives that matter for the clinical question.
 ## Differential diagnosis
-A numbered list ordered by likelihood. For each: **diagnosis** — likelihood (high / moderate / low); features for; features against.
+Only when there is an abnormality to explain: a numbered list ordered by likelihood. For each: **diagnosis** — likelihood (high / moderate / low); features for; features against. When the study is normal, write "Not applicable: no abnormality identified." and nothing else.
 ## Not assessed or limited
 ## Suggested next steps
 ## Confidence
