@@ -114,6 +114,7 @@ async function askLive(content) {
       system: LIVE_SYSTEM, messages: [{ role: "user", content }],
     }, { signal: live.ctl.signal });
     const msg = await stream.finalMessage();
+    addUsage(msg);
     if (msg.stop_reason === "refusal") throw new Error("Claude declined to comment on these slices.");
     return parseJson(msg.content.filter((b) => b.type === "text").map((b) => b.text).join(""));
   };

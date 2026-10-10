@@ -2,6 +2,7 @@
 // and adds global hotkeys so recording can be started and stopped while PACS has focus.
 const { app, BrowserWindow, protocol, net, session, desktopCapturer, ipcMain, globalShortcut, shell, dialog, Menu, screen } = require("electron");
 const path = require("path");
+const { autoUpdater } = require("electron-updater");
 const { pathToFileURL } = require("url");
 
 // Packaged: web files are copied into the app. Development: use the sibling web folder directly.
@@ -76,6 +77,7 @@ app.whenReady().then(() => {
   ]));
 
   createWindow();
+  startUpdates();
   const send = (name) => () => win && win.webContents.send("sw:hotkey", name);
   const ok1 = globalShortcut.register("CommandOrControl+Shift+R", send("record"));
   const ok2 = globalShortcut.register("CommandOrControl+Shift+K", send("snap"));
@@ -107,6 +109,21 @@ async function grabScreens(hideSelf) {
   }
 }
 ipcMain.handle("sw:screenshot", () => grabScreens(true));
+
+// Updates: the installed app checks GitHub releases at start-up, downloads quietly, and installs on the next restart.
+// The portable version has nothing to update in place, so it skips this.
+function startUpdates() {
+  if (!app.isPackaged || process.env.PORTABLE_EXECUTABLE_DIR) return;
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.on("update-downloaded", (info) => { if (win) win.webContents.send("sw:update-ready", info.version); });
+  autoUpdater.on("error", (e) => console.warn("Update check failed:", e?.message || e));
+  const check = () => autoUpdater.checkForUpdates().catch(() => { });
+  win.webContents.once("did-finish-load", check);
+  setInterval(check, 4 * 60 * 60 * 1000);
+}
+ipcMain.on("sw:install-update", () => autoUpdater.quitAndInstall());
+ipcMain.handle("sw:version", () => app.getVersion());
 
 ipcMain.on("sw:recording", (_e, on) => { if (win) win.setTitle(on ? "SliceWatch ● Recording" : "SliceWatch"); });
 app.on("second-instance", () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });

@@ -731,8 +731,24 @@ async function callClaude(messages, onText) {
       else if (ev.delta.type === "thinking_delta") { thinking += ev.delta.thinking; $("#thinkWrap").hidden = false; $("#think").textContent = thinking; }
     }
   }
-  return { msg: await stream.finalMessage(), text };
+  const msg = await stream.finalMessage();
+  addUsage(msg);
+  return { msg, text };
 }
+
+/* ---------- cost of this study ---------- */
+// $ per million tokens: [input, output, cache read]. Cache writes bill at 1.25× input.
+const PRICES = { "claude-opus-5-5": [4, 20, 0.2], "claude-fable-5-1": [10, 50, 0.25], "claude-sonnet-5-5": [2, 10, 0.2] };
+const usage = { cost: 0, calls: 0 };
+function addUsage(msg) {
+  const u = msg?.usage; if (!u) return;
+  const p = PRICES[msg.model] || PRICES[settings.model] || PRICES["claude-opus-5-5"];
+  usage.cost += ((u.input_tokens || 0) * p[0] + (u.cache_creation_input_tokens || 0) * p[0] * 1.25 + (u.cache_read_input_tokens || 0) * p[2] + (u.output_tokens || 0) * p[1]) / 1e6;
+  usage.calls++;
+  renderCost();
+}
+function renderCost() { $("#cost").textContent = usage.calls ? `≈ $${usage.cost < 0.01 ? usage.cost.toFixed(3) : usage.cost.toFixed(2)} this study` : ""; }
+function resetUsage() { usage.cost = 0; usage.calls = 0; renderCost(); }
 function resetReport() {
   state.convo = null; state.qa = []; state.reportMd = ""; showErr("");
   $("#think").textContent = ""; $("#thinkWrap").hidden = true; $("#fuForm").hidden = true; $("#sentWrap").hidden = true;
@@ -878,6 +894,7 @@ function openSettings() {
   $("#sKey").value = settings.key; $("#sRemember").checked = settings.remember; $("#sAuto").checked = settings.autoRead; $("#sLive").checked = settings.live !== false;
   $("#sModel").value = settings.model; $("#sEffort").value = settings.effort;
   $("#sMax").value = settings.maxImages; $("#sTile").value = settings.tile; $("#sThorough").checked = settings.thorough;
+  $("#sTestMsg").textContent = "";
   $("#dlgSettings").showModal();
 }
 $("#dlgSettings").addEventListener("close", () => {
@@ -886,7 +903,7 @@ $("#dlgSettings").addEventListener("close", () => {
   settings.model = $("#sModel").value; settings.effort = $("#sEffort").value;
   settings.maxImages = Math.max(4, Math.min(100, parseInt($("#sMax").value, 10) || 40)); settings.tile = $("#sTile").value;
   settings.thorough = $("#sThorough").checked; settings.live = $("#sLive").checked;
-  saveSettings(); syncButtons(); if (typeof renderLive === "function") renderLive(); toast("Settings saved.");
+  saveSettings(); syncButtons(); showSetup(); if (typeof renderLive === "function") renderLive(); toast("Settings saved.");
 });
 
 /* ---------- desktop app: screen picker and global hotkeys ---------- */
@@ -904,12 +921,38 @@ if (desktop) {
     $("#dlgPick").onclose = () => resolve(null);
     $("#dlgPick").showModal();
   }));
+  desktop.version?.().then((v) => { $(".brand small").textContent = `v${v} · CT second read from your screen`; });
+  desktop.onUpdateReady?.((v) => {
+    const t = $("#toast");
+    t.innerHTML = `SliceWatch ${esc(v)} is ready. It installs when you close the app. <button class="btn small" id="btnUpd" type="button">Restart now</button>`;
+    t.hidden = false; clearTimeout(toastT);
+    $("#btnUpd").onclick = () => desktop.installUpdate();
+  });
   desktop.onHotkey((name) => { if (name === "record") toggleRecord(); else if (name === "snap") snapKey(); });
   $("#hotkeyHint").innerHTML = "Press Record or <b>Ctrl+Shift+R</b> from anywhere, even while PACS has focus. <b>Ctrl+Shift+K</b> saves a key slice, <b>Ctrl+Shift+C</b> snaps the clinical details. Press Ctrl+Shift+R again to stop and read.";
 }
 
 /* ---------- wiring ---------- */
 $("#btnSettings").onclick = openSettings;
+$("#btnSetup").onclick = openSettings;
+function showSetup() { $("#setup").hidden = !!settings.key; }
+// A tiny request proves the key, billing and model access before a real study.
+$("#sTest").onclick = async () => {
+  const key = $("#sKey").value.trim(), msg = $("#sTestMsg");
+  if (!key) { msg.textContent = "Paste a key first."; return; }
+  msg.className = "hint"; msg.textContent = "Testing…"; $("#sTest").disabled = true;
+  try {
+    const client = new window.Anthropic({ apiKey: key, dangerouslyAllowBrowser: true, maxRetries: 0 });
+    await client.messages.create({ model: $("#sModel").value, max_tokens: 64, output_config: { effort: "low" }, messages: [{ role: "user", content: "Reply with the single word OK." }] });
+    msg.textContent = "The key works with this model. Press Save.";
+  } catch (e) {
+    msg.className = "hint warn";
+    const A = window.Anthropic;
+    msg.textContent = A && e instanceof A.AuthenticationError ? "That key was rejected. Copy it again from console.anthropic.com."
+      : A && e instanceof A.APIError && /credit|billing|balance/i.test(e.message) ? "The key is valid but the account has no credit. Add credit under Billing."
+      : friendlyError(e);
+  } finally { $("#sTest").disabled = false; }
+};
 $("#btnRecord").onclick = toggleRecord;
 $("#btnStop").onclick = stopSource;
 $("#btnSnap").onclick = snapKey;
@@ -919,7 +962,7 @@ $("#btnAbort").onclick = () => state.ctl?.abort();
 $("#btnNew").onclick = () => {
   if (state.busy) state.ctl?.abort();
   if (state.capturing) setCapturing(false);
-  clearFrames(); $("#clin").reset(); $("#clinMsg").hidden = true; resetReport(); window.onNewStudy?.();
+  clearFrames(); $("#clin").reset(); $("#clinMsg").hidden = true; resetReport(); resetUsage(); window.onNewStudy?.();
 };
 $("#fuForm").addEventListener("submit", (e) => { e.preventDefault(); const q = $("#fuIn").value.trim(); $("#fuIn").value = ""; followUp(q); });
 $("#sens").value = settings.sens; $("#sensVal").textContent = settings.sens;
@@ -941,6 +984,5 @@ document.addEventListener("keydown", (e) => {
 window.addEventListener("beforeunload", (e) => { if (state.frames.length || state.convo) { e.preventDefault(); e.returnValue = ""; } });
 if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => { });
 
-renderChips(); updateCropHint(); renderStrip(); syncButtons();
-if (!settings.key) setTimeout(() => toast("Open Settings to add your Anthropic API key."), 600);
+renderChips(); updateCropHint(); renderStrip(); syncButtons(); showSetup();
 window.__sw = { state, settings, planImages, md, autoCrop, buildFirstMessage, buildMasks, frameCanvas, readClinicalScreenshot, toggleRecord, OCR };

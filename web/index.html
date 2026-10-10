@@ -59,6 +59,16 @@
   </div>
 
   <div class="col">
+    <section class="card setup" id="setup" aria-labelledby="h-setup" hidden>
+      <h2 id="h-setup">Set up once</h2>
+      <ol>
+        <li>Go to <a href="https://console.anthropic.com/" target="_blank" rel="noopener">console.anthropic.com</a> and sign in.</li>
+        <li>Under <b>Billing</b>, add credit ($5–10 is plenty to start). This is separate from a Claude subscription.</li>
+        <li>Under <b>API keys</b>, create a key and copy it. It starts with <code>sk-ant-</code>.</li>
+        <li>Paste it in Settings and press <b>Test key</b>.</li>
+      </ol>
+      <div class="row"><button class="btn primary" id="btnSetup" type="button">Open Settings</button><span class="hint">Everything except the read itself works without a key.</span></div>
+    </section>
     <section class="card" aria-labelledby="h-clin">
       <h2 id="h-clin">Clinical details</h2>
       <div class="snaprow">
@@ -93,7 +103,7 @@
     </section>
 
     <section class="card" aria-labelledby="h-rep">
-      <h2 id="h-rep">Provisional read</h2>
+      <h2 id="h-rep">Provisional read <span class="spacer"></span><span class="count" id="cost" title="Estimated API cost of this study, from the token counts Claude returns"></span></h2>
       <div id="live" class="live" hidden aria-live="polite">
         <div class="live-head"><span class="eye" aria-hidden="true"></span><b>Claude is watching</b><span id="liveMeta" class="mono muted"></span></div>
         <div id="liveAsk" class="live-ask" hidden></div>
@@ -119,7 +129,9 @@
 <dialog id="dlgSettings">
   <form method="dialog" class="dlg">
     <h3>Settings</h3>
-    <label class="f">Anthropic API key<input class="t" id="sKey" type="password" placeholder="sk-ant-…" autocomplete="off"></label>
+    <label class="f">Anthropic API key
+      <span class="keyrow"><input class="t" id="sKey" type="password" placeholder="sk-ant-…" autocomplete="off"><button class="btn" id="sTest" type="button">Test key</button></span></label>
+    <span class="hint" id="sTestMsg" role="status"></span>
     <label class="ctrl"><input type="checkbox" id="sRemember"> Remember the key on this computer</label>
     <span class="hint">The key is sent only to api.anthropic.com. Create one at console.anthropic.com under API keys. API use is billed separately from a Claude subscription.</span>
     <label class="ctrl"><input type="checkbox" id="sLive"> Let Claude watch live while I record (working diagnosis and requests as you scroll)</label>

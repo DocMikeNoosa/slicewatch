@@ -32,8 +32,9 @@ add it to your PC like an app. It also works offline after the first visit.
 
 ## First run
 
-1. Open **Settings** and paste an Anthropic API key (console.anthropic.com → API keys). API use is billed
-   separately from a Claude subscription.
+1. Open **Settings**, paste an Anthropic API key (console.anthropic.com → API keys; add credit under Billing),
+   and press **Test key**. API use is billed separately from a Claude subscription. The header of the read
+   shows an estimate of what each study cost.
 2. **Clinical details:** press **Snap from screen**, drag a box around the request, and the fields fill in.
 3. Press **Record**, choose the screen showing PACS, and scroll through the study. Press **Stop** for the read.
 
@@ -50,7 +51,10 @@ add it to your PC like an app. It also works offline after the first visit.
 - `web/`: the app (plain HTML, CSS and JavaScript). `web/vendor/` holds Tesseract.js (on-device text
   recognition) and the Anthropic SDK, copied there by `npm run vendor`.
 - `desktop/`: the Electron shell for the Windows app (screen picker, global hotkeys).
-- `tests/`: `npm test` checks identifier removal.
-- `.github/workflows/release.yml`: on every push to `main` that touches the app, builds the Windows installer,
-  installs and launches it on a Windows runner, and publishes it as release `v<version>` (version from
-  `desktop/package.json`).
+- `tests/`: `npm test` checks identifier removal. `npm run e2e:web` and `npm run e2e:desktop` run a whole study
+  end to end against a simulated PACS and EMR screen with simulated Claude replies, and check that no identifier
+  reaches anything sent (text, and every image, by pixel colour and by independent text recognition).
+- `.github/workflows/release.yml`: on every push to `main` that touches the app, tests the web version and
+  publishes it to GitHub Pages, and builds the Windows installer, installs it on a Windows runner, runs the
+  end-to-end test against the installed app, and publishes release `v<version>` (version from
+  `desktop/package.json`). The installed app picks up new releases by itself.

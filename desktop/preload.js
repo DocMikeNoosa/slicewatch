@@ -11,5 +11,8 @@ contextBridge.exposeInMainWorld("swDesktop", {
   onHotkey(handler) { ipcRenderer.on("sw:hotkey", (_e, name) => handler(name)); },
   setRecording(on) { ipcRenderer.send("sw:recording", !!on); },
   screenshot() { return ipcRenderer.invoke("sw:screenshot"); },
+  version() { return ipcRenderer.invoke("sw:version"); },
+  onUpdateReady(handler) { ipcRenderer.on("sw:update-ready", (_e, v) => handler(v)); },
+  installUpdate() { ipcRenderer.send("sw:install-update"); },
   onClinicalShot(handler) { ipcRenderer.on("sw:clinical-shot", (_e, shots) => handler(shots)); },
 });

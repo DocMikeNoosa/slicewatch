@@ -1,20 +1,41 @@
-name: Build Windows app
+name: Test and release
 
 on:
   push:
     branches: [main]
-    paths: ["web/**", "desktop/**", "tests/**", ".github/workflows/release.yml"]
+    paths: ["web/**", "desktop/**", "tests/**", "package.json", "package-lock.json", ".github/workflows/release.yml"]
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
+  web:
+    name: Web version (test, then publish to GitHub Pages)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm test
+      - run: npx playwright install --with-deps chromium
+      - name: End-to-end test of the web version
+        run: npm run e2e:web
+      - name: Publish web/ to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./web
+          publish_branch: gh-pages
+          commit_message: "Publish web version from ${{ github.sha }}"
+
   windows:
+    name: Windows app (build, install, test, release)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -28,18 +49,21 @@ jobs:
           npm ci
           npx electron-builder --win nsis portable --x64 --publish never
 
-      - name: Install silently and start the app (smoke test)
+      - name: Install silently
         shell: pwsh
         run: |
           $setup = Get-ChildItem desktop/dist/SliceWatch-Setup-*.exe | Select-Object -First 1
           Start-Process $setup.FullName -ArgumentList '/S' -Wait
           $exe = Join-Path $env:LOCALAPPDATA 'Programs\SliceWatch\SliceWatch.exe'
           if (-not (Test-Path $exe)) { throw "SliceWatch.exe was not installed at $exe" }
-          $p = Start-Process $exe -PassThru
-          Start-Sleep -Seconds 20
-          if ($p.HasExited) { throw "SliceWatch exited during start-up (code $($p.ExitCode))" }
-          Stop-Process -Id $p.Id -Force
-          Write-Host "Installed and ran: $exe"
+          "SLICEWATCH_EXE=$exe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "Installed: $exe"
+
+      - name: End-to-end test of the installed app
+        shell: pwsh
+        run: |
+          npm ci
+          npm run e2e:desktop
 
       - uses: actions/upload-artifact@v4
         with:
@@ -61,8 +85,11 @@ jobs:
           target_commitish: ${{ github.sha }}
           body: |
             Windows installer and portable app for SliceWatch ${{ steps.ver.outputs.v }}.
-            Built, installed and launched on a Windows runner before publishing.
+            Built, installed and tested end to end on a Windows runner before publishing.
             Windows may show a SmartScreen warning because the app is not code-signed: choose More info, then Run anyway.
+            The installed app updates itself from this page; the portable app does not.
           files: |
             desktop/dist/SliceWatch-Setup-*.exe
+            desktop/dist/SliceWatch-Setup-*.exe.blockmap
             desktop/dist/SliceWatch-Portable-*.exe
+            desktop/dist/latest.yml
